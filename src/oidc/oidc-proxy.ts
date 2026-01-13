@@ -150,22 +150,6 @@ export class OIDCProxy extends EventEmitter {
         return;
       }
 
-      // Only allow connection handshake commands without auth
-      // These are required for driver initialization before auth can happen
-      const allowedWithoutAuth = [
-        'buildInfo',        // Server version info
-        'getParameter',     // Server config (limited info)
-        'hostInfo',         // Host info (Compass needs this)
-        'atlasVersion',     // Atlas version check
-        'connectionStatus', // Connection info
-        'endSessions',      // Session cleanup
-        'killCursors'       // Cursor cleanup
-      ];
-      if (cmdName && allowedWithoutAuth.includes(cmdName)) {
-        await this.forwardCommand(connState, msg);
-        return;
-      }
-
       this.emit('authRequired', connState.id, cmdName);
       const response = this.messageBuilder.buildAuthFailureResponse(
         msg.header.requestID,
