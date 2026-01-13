@@ -659,23 +659,6 @@ export function getCommandDb (msg: FullMessage): string | null {
   return bodySection.body.data.$db || null;
 }
 
-export function getCommandName (msg: FullMessage): string | null {
-  if (msg.contents.opCode !== 'OP_MSG') {
-    return null;
-  }
-
-  const opMsg = msg.contents as OpMsg;
-  const bodySection = opMsg.sections.find(s => s.kind === 'Body') as OpMsgBodySection | undefined;
-  if (!bodySection) {
-    return null;
-  }
-
-  const doc = bodySection.body.data;
-  // The first key in the document is the command name
-  const keys = Object.keys(doc).filter(k => !k.startsWith('$'));
-  return keys.length > 0 ? keys[0] : null;
-}
-
 export function getCommandBody (msg: FullMessage): Record<string, unknown> | null {
   if (msg.contents.opCode !== 'OP_MSG') {
     return null;

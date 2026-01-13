@@ -190,7 +190,7 @@ export class OIDCProxy extends EventEmitter {
 
   private async handleSaslStart(connState: ConnectionState, msg: FullMessage, payload?: Uint8Array): Promise<void> {
     connState.authState.conversationId = ++this.conversationIdCounter;
-    
+
     // Try to authenticate with JWT from payload
     const jwt = this.extractJwtFromPayload(connState.id, payload);
     if (jwt) {
