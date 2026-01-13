@@ -230,6 +230,52 @@ export class OIDCProxy extends EventEmitter {
     this.emit('saslStart', connState.id, idpInfo);
   }
 
+  private async handleSaslContinue(
+    connState: ConnectionState,
+    msg: FullMessage,
+    payload?: Uint8Array,
+    conversationId?: number
+  ): Promise<void> {
+    // Validate conversationId matches the one from saslStart
+    if (conversationId !== connState.authState.conversationId) {
+      connState.socket.write(this.messageBuilder.buildAuthFailureResponse(
+        msg.header.requestID,
+        'Invalid conversationId'
+      ));
+      return;
+    }
+
+    const jwt = this.extractJwtFromPayload(connState.id, payload);
+    if (!jwt) {
+      connState.socket.write(this.messageBuilder.buildAuthFailureResponse(
+        msg.header.requestID,
+        'Missing or invalid JWT payload'
+      ));
+      return;
+    }
+
+    // Validate JWT
+    const result = await this.jwtValidator.validate(jwt);
+    if (!result.valid) {
+      connState.socket.write(this.messageBuilder.buildAuthFailureResponse(
+        msg.header.requestID,
+        `Authentication failed: ${result.error}`
+      ));
+      this.emit('authFailed', connState.id, result.error);
+      return;
+    }
+
+    // Authentication successful
+    connState.authState.authenticated = true;
+    connState.authState.principalName = result.subject;
+    connState.authState.tokenExp = result.exp;
+    connState.socket.write(this.messageBuilder.buildAuthSuccessResponse(
+      msg.header.requestID,
+      connState.authState.conversationId
+    ));
+    this.emit('authSuccess', connState.id, result.subject + ' (via saslContinue)');
+  }
+
   private extractJwtFromPayload(connId: number, payload?: Uint8Array): string | null {
     if (!payload || payload.length === 0) {
       this.emit('debug', connId, 'saslStart with empty payload');
@@ -261,84 +307,6 @@ export class OIDCProxy extends EventEmitter {
     } catch { /* ignore */ }
 
     return jwt;
-  }
-
-  private async handleSaslContinue(
-    connState: ConnectionState,
-    msg: FullMessage,
-    payload?: Uint8Array,
-    conversationId?: number
-  ): Promise<void> {
-    // Validate conversationId matches the one from saslStart
-    if (conversationId !== connState.authState.conversationId) {
-      const response = this.messageBuilder.buildAuthFailureResponse(
-        msg.header.requestID,
-        'Invalid conversationId'
-      );
-      connState.socket.write(response);
-      return;
-    }
-
-    if (!payload || payload.length === 0) {
-      const response = this.messageBuilder.buildAuthFailureResponse(
-        msg.header.requestID,
-        'Missing JWT payload'
-      );
-      connState.socket.write(response);
-      return;
-    }
-
-    // Parse the payload BSON to extract JWT
-    let jwt: string;
-    try {
-      const payloadDoc = deserialize(payload);
-      jwt = payloadDoc.jwt;
-      if (!jwt) {
-        throw new Error('No jwt field in payload');
-      }
-    } catch (err) {
-      const response = this.messageBuilder.buildAuthFailureResponse(
-        msg.header.requestID,
-        'Invalid payload format'
-      );
-      connState.socket.write(response);
-      return;
-    }
-
-    // Decode JWT payload for debugging
-    try {
-      const parts = jwt.split('.');
-      if (parts.length === 3) {
-        const payloadB64 = parts[1];
-        const payloadJson = Buffer.from(payloadB64, 'base64').toString('utf8');
-        this.emit('debug', connState.id, `saslContinue JWT payload: ${payloadJson}`);
-      }
-    } catch { /* ignore decode errors */ }
-
-    // Validate JWT
-    const result = await this.jwtValidator.validate(jwt);
-
-    if (!result.valid) {
-      const response = this.messageBuilder.buildAuthFailureResponse(
-        msg.header.requestID,
-        `Authentication failed: ${result.error}`
-      );
-      connState.socket.write(response);
-      this.emit('authFailed', connState.id, result.error);
-      return;
-    }
-
-    // Authentication successful
-    connState.authState.authenticated = true;
-    connState.authState.principalName = result.subject;
-    connState.authState.tokenExp = result.exp;
-
-    const response = this.messageBuilder.buildAuthSuccessResponse(
-      msg.header.requestID,
-      connState.authState.conversationId
-    );
-    connState.socket.write(response);
-    this.emit('authSuccess', connState.id, result.subject);
   }
 
   private async handleHello(connState: ConnectionState, msg: FullMessage): Promise<void> {
