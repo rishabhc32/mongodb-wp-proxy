@@ -31,12 +31,12 @@ export class OIDCProxy extends EventEmitter {
   private maxConnections: number;
   private connectionTimeoutMs: number;
 
-  constructor(config: OIDCProxyConfig) {
+  constructor(config: OIDCProxyConfig, jwtValidator?: JWTValidator) {
     super();
     this.config = config;
     this.maxConnections = config.maxConnections ?? DEFAULT_MAX_CONNECTIONS;
     this.connectionTimeoutMs = config.connectionTimeoutMs ?? DEFAULT_CONNECTION_TIMEOUT_MS;
-    this.jwtValidator = new JWTValidator(config.issuer, config.clientId, config.jwksUri, config.audience);
+    this.jwtValidator = jwtValidator ?? new JWTValidator(config.issuer, config.clientId, config.jwksUri, config.audience);
     this.messageBuilder = new MessageBuilder();
     this.backendClient = new MongoClient(config.connectionString);
     this.server = net.createServer(socket => this.handleConnection(socket));
