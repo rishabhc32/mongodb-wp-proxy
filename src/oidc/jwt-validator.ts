@@ -4,6 +4,7 @@ export interface JWTValidationResult {
   valid: boolean;
   payload?: JWTPayload;
   subject?: string;
+  exp?: number;
   error?: string;
 }
 
@@ -42,7 +43,8 @@ export class JWTValidator {
       return {
         valid: true,
         payload,
-        subject: payload.sub
+        subject: payload.sub,
+        exp: payload.exp
       };
     } catch (err) {
       return {

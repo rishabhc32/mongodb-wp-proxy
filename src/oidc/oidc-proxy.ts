@@ -17,7 +17,7 @@ interface ConnectionState {
 }
 
 const DEFAULT_MAX_CONNECTIONS = 10000;
-const DEFAULT_CONNECTION_TIMEOUT_MS = 30000;
+const DEFAULT_CONNECTION_TIMEOUT_MS = 120000;
 
 export class OIDCProxy extends EventEmitter {
   private server: net.Server;
@@ -218,15 +218,24 @@ export class OIDCProxy extends EventEmitter {
             // Authentication successful via saslStart
             connState.authState.authenticated = true;
             connState.authState.principalName = result.subject;
+            connState.authState.tokenExp = result.exp;
+
             const response = this.messageBuilder.buildAuthSuccessResponse(
               msg.header.requestID,
               connState.authState.conversationId
             );
             connState.socket.write(response);
             this.emit('authSuccess', connState.id, result.subject + ' (via saslStart)');
+            
             return;
           } else {
             this.emit('debug', connState.id, `JWT validation failed: ${result.error}`);
+            // Check if token expired - return ReauthenticationRequired error
+            if (result.error?.includes('exp') || result.error?.includes('expired')) {
+              this.sendReauthRequired(connState, msg.header.requestID, 'access token has expired');
+              return;
+            }
+            // Fall through to return IdP info - this forces driver to do fresh OIDC flow
           }
         } else {
           this.emit('debug', connState.id, 'saslStart payload has no jwt field');
@@ -322,6 +331,7 @@ export class OIDCProxy extends EventEmitter {
     // Authentication successful
     connState.authState.authenticated = true;
     connState.authState.principalName = result.subject;
+    connState.authState.tokenExp = result.exp;
 
     const response = this.messageBuilder.buildAuthSuccessResponse(
       msg.header.requestID,
@@ -354,6 +364,18 @@ export class OIDCProxy extends EventEmitter {
     connState.socket.write(response);
   }
 
+  private sendReauthRequired(connState: ConnectionState, requestID: number, reason: string): void {
+    this.emit('reauthRequired', connState.id, reason);
+    connState.authState.authenticated = false;
+    connState.authState.tokenExp = undefined;
+    connState.socket.write(this.messageBuilder.buildErrorResponse(
+      requestID,
+      `Reauthentication required: ${reason}`,
+      391,
+      'ReauthenticationRequired'
+    ));
+  }
+
   private async forwardCommand(connState: ConnectionState, msg: FullMessage): Promise<void> {
     const dbName = getCommandDb(msg) || 'admin';
     const body = getCommandBody(msg);
@@ -364,6 +386,15 @@ export class OIDCProxy extends EventEmitter {
         'Invalid command format'
       );
       connState.socket.write(response);
+      return;
+    }
+
+    // Check if token has expired - return ReauthenticationRequired (code 391) if so
+    // This allows compliant drivers to reauthenticate without dropping the connection
+    const tokenExp = connState.authState.tokenExp;
+    if (tokenExp && Math.floor(Date.now() / 1000) >= tokenExp) {
+      const cmdName = Object.keys(body).find(k => !k.startsWith('$')) || 'unknown';
+      this.sendReauthRequired(connState, msg.header.requestID, `command ${cmdName} - token expired`);
       return;
     }
 

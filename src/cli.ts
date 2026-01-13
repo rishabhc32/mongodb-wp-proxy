@@ -289,6 +289,14 @@ async function runOIDCProxy (args: ParsedArgs): Promise<void> {
     }
   });
 
+  proxy.on('reauthRequired', (connId: number, cmdName: string | null) => {
+    if (args.ndjson) {
+      console.log(JSON.stringify({ ev: 'reauthRequired', connId, cmdName }));
+    } else {
+      console.log(`[${connId}] Reauthentication required for command: ${cmdName || 'unknown'} (token expired)`);
+    }
+  });
+
   await proxy.start();
 }
 

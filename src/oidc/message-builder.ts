@@ -95,12 +95,12 @@ export class MessageBuilder {
     return this.buildOpMsg(responseTo, result);
   }
 
-  buildErrorResponse(responseTo: number, errorMessage: string, code = 1): Buffer {
+  buildErrorResponse(responseTo: number, errorMessage: string, code = 1, codeName = 'InternalError'): Buffer {
     const response: Document = {
       ok: 0,
       errmsg: errorMessage,
       code,
-      codeName: 'InternalError'
+      codeName
     };
 
     return this.buildOpMsg(responseTo, response);

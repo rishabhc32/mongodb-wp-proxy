@@ -14,13 +14,14 @@ export interface OIDCProxyConfig {
 
   // Limits
   maxConnections?: number;       // Max concurrent connections (default: 10000)
-  connectionTimeoutMs?: number;  // Idle connection timeout in ms (default: 30000 = 30s)
+  connectionTimeoutMs?: number;  // Idle connection timeout in ms (default: 120000 = 2min)
 }
 
 export interface OIDCAuthState {
   conversationId: number;
   authenticated: boolean;
   principalName?: string;
+  tokenExp?: number;
 }
 
 export interface IdpInfo {
