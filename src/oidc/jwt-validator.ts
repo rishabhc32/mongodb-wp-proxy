@@ -1,10 +1,17 @@
-import { createRemoteJWKSet, jwtVerify, type JWTPayload } from 'jose';
+import { createRemoteJWKSet, jwtVerify, errors, type JWTPayload } from 'jose';
+
+export enum JWTValidationError {
+  EXPIRED = 'expired',
+  CLIENT_ID_MISMATCH = 'client_id_mismatch',
+  INVALID = 'invalid'
+}
 
 export interface JWTValidationResult {
   valid: boolean;
   payload?: JWTPayload;
   subject?: string;
   exp?: number;
+  errorCode?: JWTValidationError;
   error?: string;
 }
 
@@ -36,6 +43,7 @@ export class JWTValidator {
       if (!(typeof tokenClientId === 'string' && tokenClientId && tokenClientId === this.clientId)) {
         return {
           valid: false,
+          errorCode: JWTValidationError.CLIENT_ID_MISMATCH,
           error: 'client_id mismatch'
         };
       }
@@ -49,6 +57,7 @@ export class JWTValidator {
     } catch (err) {
       return {
         valid: false,
+        errorCode: err instanceof errors.JWTExpired ? JWTValidationError.EXPIRED : JWTValidationError.INVALID,
         error: err instanceof Error ? err.message : 'Unknown validation error'
       };
     }

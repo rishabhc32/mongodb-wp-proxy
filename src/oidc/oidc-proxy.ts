@@ -4,7 +4,7 @@ import { MongoClient, Document } from 'mongodb';
 import { deserialize, Long } from 'bson';
 import { WireProtocolParser } from '../parse-stream';
 import { FullMessage, getSaslCommand, getCommandDb, getCommandBody } from '../parse';
-import { JWTValidator } from './jwt-validator';
+import { JWTValidator, JWTValidationError } from './jwt-validator';
 import { MessageBuilder } from './message-builder';
 import type { OIDCProxyConfig, OIDCAuthState, IdpInfo } from './types';
 
@@ -229,9 +229,8 @@ export class OIDCProxy extends EventEmitter {
             
             return;
           } else {
-            this.emit('debug', connState.id, `JWT validation failed: ${result.error}`);
-            // Check if token expired - return ReauthenticationRequired error
-            if (result.error?.includes('exp') || result.error?.includes('expired')) {
+            this.emit('debug', connState.id, `JWT validation failed: ${result.errorCode} - ${result.error}`);
+            if (result.errorCode === JWTValidationError.EXPIRED) {
               this.sendReauthRequired(connState, msg.header.requestID, 'access token has expired');
               return;
             }
