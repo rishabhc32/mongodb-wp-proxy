@@ -1,7 +1,8 @@
-import net from 'net';
+import net, { Server } from 'net';
 import * as crypto from 'crypto';
 import { URL } from 'url';
 import { EventEmitter } from 'events';
+import { promisify } from 'util';
 import { MongoClient, Document } from 'mongodb';
 import { deserialize, Long } from 'bson';
 import { WireProtocolParser } from '../parse-stream';
@@ -28,7 +29,7 @@ const DEFAULT_MAX_CONNECTIONS = 10000;
 const DEFAULT_CONNECTION_TIMEOUT_MS = 120000;
 
 export class OIDCProxy extends EventEmitter {
-  private server: net.Server;
+  private server: Server;
   private backendClient: MongoClient;
   private jwtValidator: JWTValidator;
   private messageBuilder: MessageBuilder;
@@ -81,11 +82,11 @@ export class OIDCProxy extends EventEmitter {
     }
     this.connections.clear();
 
-    await new Promise<void>((resolve) => {
-      this.server.close(() => resolve());
-    });
-
-    await this.backendClient.close();
+    const closeServer = promisify(this.server.close.bind(this.server));
+    await Promise.allSettled([
+      closeServer(),
+      this.backendClient.close()
+    ]);
   }
 
   address(): net.AddressInfo | string | null {
