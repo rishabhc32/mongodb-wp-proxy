@@ -1,5 +1,5 @@
 import net from 'net';
-import { WireProtocolParser } from './parse-stream';
+import { WireProtocolParser } from '@src/parse-stream';
 import { EventEmitter, once } from 'events';
 
 export class ConnectionPair extends EventEmitter {

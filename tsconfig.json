@@ -15,9 +15,14 @@
     "lib": ["es2019"],
     "module": "commonjs",
     "moduleResolution": "node",
-    "outDir": "./lib"
+    "outDir": "./lib",
+    "baseUrl": ".",
+    "paths": {
+      "@src/*": ["src/*"]
+    }
   },
   "include": [
-    "./src/**/*"
+    "./src/**/*",
+    "./test/**/*"
   ]
 }

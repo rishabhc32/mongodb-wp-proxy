@@ -1,6 +1,6 @@
 import { serialize, Binary, Document } from 'bson';
-import { OpCode } from '../parse';
-import type { IdpInfo } from './types';
+import { OpCode } from '@src/parse';
+import type { IdpInfo } from '@src/oidc/types';
 
 export class MessageBuilder {
   private requestIdCounter = 0;
