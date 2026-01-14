@@ -2,7 +2,12 @@
 .nyc_output
 node_modules
 package-lock.json
+.vscode
+.idea
 dist
 coverage
 .esm-wrapper.mjs
 lib/
+.env
+.env.prod
+.env.sandbox
