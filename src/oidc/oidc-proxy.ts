@@ -13,7 +13,6 @@ interface ConnectionState {
   socket: net.Socket;
   parser: WireProtocolParser;
   authState: OIDCAuthState;
-  buffer: Buffer[];
 }
 
 const DEFAULT_MAX_CONNECTIONS = 10000;
@@ -96,8 +95,7 @@ export class OIDCProxy extends EventEmitter {
       authState: {
         conversationId: 0,
         authenticated: false
-      },
-      buffer: []
+      }
     };
 
     this.connections.set(connId, connState);
