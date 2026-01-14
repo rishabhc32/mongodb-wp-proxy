@@ -222,11 +222,13 @@ export class OIDCProxy extends EventEmitter {
 
       if (result.valid) {
         const email = result.email!;
-        const success = await this.provisionUser(connState, msg.header.requestID, email);
-        if (!success) {
+        const userClient = await this.provisionUser(connState.id, connState.socket, msg.header.requestID, email);
+        if (!userClient) {
           return;
         }
-
+        
+        // Authentication successful
+        connState.userClient = userClient;
         connState.authState.authenticated = true;
         connState.authState.principalName = result.subject;
         connState.authState.email = email;
@@ -296,12 +298,13 @@ export class OIDCProxy extends EventEmitter {
     }
 
     const email = result.email!;
-    const success = await this.provisionUser(connState, msg.header.requestID, email);
-    if (!success) {
+    const userClient = await this.provisionUser(connState.id, connState.socket, msg.header.requestID, email);
+    if (!userClient) {
       return;
     }
 
     // Authentication successful
+    connState.userClient = userClient;
     connState.authState.authenticated = true;
     connState.authState.principalName = result.subject;
     connState.authState.email = email;
@@ -313,19 +316,19 @@ export class OIDCProxy extends EventEmitter {
     this.emit('authSuccess', connState.id, `${result.subject} (${email}) (via saslContinue)`);
   }
 
-  private async provisionUser(connState: ConnectionState, requestId: number, email: string): Promise<boolean> {
-    this.emit('debug', connState.id, `Checking roles for ${email}...`);
+  private async provisionUser(connId: number, socket: net.Socket, requestId: number, email: string): Promise<MongoClient | null> {
+    this.emit('debug', connId, `Checking roles for ${email}...`);
     const adminDb = this.backendClient.db('admin');
 
     // Verify role exists
     const rolesInfo = await adminDb.command({ rolesInfo: email });
     if (!rolesInfo.roles || rolesInfo.roles.length === 0) {
-      this.emit('debug', connState.id, `Role ${email} not found`);
-      connState.socket.write(this.messageBuilder.buildAuthFailureResponse(
+      this.emit('debug', connId, `Role ${email} not found in DB`);
+      socket.write(this.messageBuilder.buildAuthFailureResponse(
         requestId,
-        `Role '${email}' not defined in MongoDB`
+        `Role '${email}' not defined`
       ));
-      return false;
+      return null;
     }
 
     // Create/Update user with random password
@@ -337,15 +340,15 @@ export class OIDCProxy extends EventEmitter {
         pwd: password,
         roles: [{ role: email, db: 'admin' }]
       });
-      this.emit('debug', connState.id, `Updated user ${email}`);
+      this.emit('debug', connId, `Updated user ${email}`);
     } catch (err: any) {
-      if (err.code === 11) { // UserNotFound
+      if (err.codeName === 'UserNotFound') {
         await adminDb.command({
           createUser: email,
           pwd: password,
           roles: [{ role: email, db: 'admin' }]
         });
-        this.emit('debug', connState.id, `Created user ${email}`);
+        this.emit('debug', connId, `Created user ${email}`);
       } else {
         throw err;
       }
@@ -353,13 +356,11 @@ export class OIDCProxy extends EventEmitter {
 
     // Create dedicated connection for this user
     const { protocol, host, params } = this.backendInfo;
-    const userClient = new MongoClient(
+    const userClient = await new MongoClient(
       `${protocol}//${encodeURIComponent(email)}:${encodeURIComponent(password)}@${host}/?${params.toString()}`
-    );
-    await userClient.connect();
-    connState.userClient = userClient;
+    ).connect();
 
-    return true;
+    return userClient;
   }
 
   private extractJwtFromPayload(connId: number, payload?: Uint8Array): string | null {
@@ -367,8 +368,6 @@ export class OIDCProxy extends EventEmitter {
       this.emit('debug', connId, 'saslStart with empty payload');
       return null;
     }
-
-    this.emit('debug', connId, `saslStart payload size: ${payload.length} bytes`);
 
     let payloadDoc: Record<string, unknown>;
     try {
