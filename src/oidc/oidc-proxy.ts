@@ -9,6 +9,7 @@ import { WireProtocolParser } from '../parse-stream';
 import { FullMessage, getSaslCommand, getCommandDb, getCommandBody } from '../parse';
 import { JWTValidator, JWTValidationError } from './jwt-validator';
 import { MessageBuilder } from './message-builder';
+import { Singleflight } from '../utils/sync';
 import type { OIDCProxyConfig, OIDCAuthState, IdpInfo } from './types';
 
 interface ConnectionState {
@@ -40,6 +41,7 @@ export class OIDCProxy extends EventEmitter {
   private maxConnections: number;
   private connectionTimeoutMs: number;
   private backendInfo: BackendInfo;
+  private singleflight = new Singleflight();
 
   constructor(config: OIDCProxyConfig, jwtValidator?: JWTValidator) {
     super();
@@ -317,50 +319,54 @@ export class OIDCProxy extends EventEmitter {
   }
 
   private async provisionUser(connId: number, socket: net.Socket, requestId: number, email: string): Promise<MongoClient | null> {
-    this.emit('debug', connId, `Checking roles for ${email}...`);
-    const adminDb = this.backendClient.db('admin');
+    const { value } = await this.singleflight.do(email, async () => {
+      this.emit('debug', connId, `Checking roles for ${email}...`);
+      const adminDb = this.backendClient.db('admin');
 
-    // Verify role exists
-    const rolesInfo = await adminDb.command({ rolesInfo: email });
-    if (!rolesInfo.roles || rolesInfo.roles.length === 0) {
-      this.emit('debug', connId, `Role ${email} not found in DB`);
-      socket.write(this.messageBuilder.buildAuthFailureResponse(
-        requestId,
-        `Role '${email}' not defined`
-      ));
-      return null;
-    }
+      // Verify role exists
+      const rolesInfo = await adminDb.command({ rolesInfo: email });
+      if (!rolesInfo.roles || rolesInfo.roles.length === 0) {
+        this.emit('debug', connId, `Role ${email} not found in DB`);
+        socket.write(this.messageBuilder.buildAuthFailureResponse(
+          requestId,
+          `Role '${email}' not defined`
+        ));
+        return null;
+      }
 
-    // Create/Update user with random password
-    const password = crypto.randomBytes(32).toString('base64');
+      // Create/Update user with random password
+      const password = crypto.randomBytes(32).toString('base64');
 
-    try {
-      await adminDb.command({
-        updateUser: email,
-        pwd: password,
-        roles: [{ role: email, db: 'admin' }]
-      });
-      this.emit('debug', connId, `Updated user ${email}`);
-    } catch (err: any) {
-      if (err.codeName === 'UserNotFound') {
+      try {
         await adminDb.command({
-          createUser: email,
+          updateUser: email,
           pwd: password,
           roles: [{ role: email, db: 'admin' }]
         });
-        this.emit('debug', connId, `Created user ${email}`);
-      } else {
-        throw err;
+        this.emit('debug', connId, `Updated user ${email}`);
+      } catch (err: any) {
+        if (err.codeName === 'UserNotFound') {
+          await adminDb.command({
+            createUser: email,
+            pwd: password,
+            roles: [{ role: email, db: 'admin' }]
+          });
+          this.emit('debug', connId, `Created user ${email}`);
+        } else {
+          throw err;
+        }
       }
-    }
 
-    // Create dedicated connection for this user
-    const { protocol, host, params } = this.backendInfo;
-    const userClient = await new MongoClient(
-      `${protocol}//${encodeURIComponent(email)}:${encodeURIComponent(password)}@${host}/?${params.toString()}`
-    ).connect();
+      // Create dedicated connection for this user
+      const { protocol, host, params } = this.backendInfo;
+      const userClient = await new MongoClient(
+        `${protocol}//${encodeURIComponent(email)}:${encodeURIComponent(password)}@${host}/?${params.toString()}`
+      ).connect();
 
-    return userClient;
+      return userClient;
+    });
+
+    return value;
   }
 
   private extractJwtFromPayload(connId: number, payload?: Uint8Array): string | null {
