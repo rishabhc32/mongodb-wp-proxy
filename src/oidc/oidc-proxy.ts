@@ -344,7 +344,10 @@ export class OIDCProxy extends EventEmitter {
 
       const cachedPassword = this.userPasswordCache.get(email);
       if (cachedPassword) {
-        return { username: email, password: cachedPassword };
+        return {
+          username: email,
+          password: cachedPassword
+        };
       }
 
       // Create/Update user with random password
@@ -373,7 +376,10 @@ export class OIDCProxy extends EventEmitter {
       // Set the new password in the cache
       this.userPasswordCache.set(email, password);
 
-      return { username: email, password };
+      return {
+        username: email,
+        password: password
+      };
     });
 
     if (!value) {
