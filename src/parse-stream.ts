@@ -1,4 +1,4 @@
-import { ParseMessage } from './parse';
+import { ParseMessage } from '@src/parse';
 import { Writable } from 'stream';
 
 export class WireProtocolParser extends Writable {

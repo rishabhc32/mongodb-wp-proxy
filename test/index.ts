@@ -1,5 +1,5 @@
 import assert from 'assert';
-import { Proxy } from '../';
+import { Proxy } from '@src/proxy';
 import { MongoClient } from 'mongodb';
 import childProcess from 'child_process';
 import { EJSON } from 'bson';
@@ -22,7 +22,7 @@ describe('Proxy', function() {
   let events: any[];
   let client: MongoClient;
 
-  beforeEach(async() => {
+  beforeEach(async () => {
     events = [];
     proxy = new Proxy({ host: hostport.split(':')[0], port: +hostport.split(':')[1] });
     proxy.on('newConnection', (conn: any) => {
@@ -36,19 +36,19 @@ describe('Proxy', function() {
     client = await MongoClient.connect(`mongodb://localhost:${port}`);
   });
 
-  afterEach(async() => {
+  afterEach(async () => {
     await client.close();
     await proxy.close();
   });
 
-  it('records ismaster events', async() => {
+  it('records ismaster events', async () => {
     assert(events.some(ev => ev.source === 'outgoing' && ev.msg?.contents.query?.data?.ismaster),
       EJSON.stringify(events) + ' is missing ismaster query');
     assert(events.some(ev => ev.source === 'incoming' && ev.msg?.contents.documents?.[0]?.data?.ismaster),
       EJSON.stringify(events) + ' is missing ismaster reply');
   });
 
-  it('records find queries', async() => {
+  it('records find queries', async () => {
     await client.db('test').collection('test').findOne();
     assert(events.some(ev => ev.source === 'outgoing' && ev.msg?.contents.sections?.[0]?.body?.data?.find === 'test'),
       EJSON.stringify(events) + ' is missing findOne query');
@@ -66,9 +66,10 @@ describe('bin', function() {
   let client: MongoClient;
 
   describe('human-readable', () => {
-    beforeEach(async() => {
+    beforeEach(async () => {
       proc = childProcess.spawn('ts-node', [
         '-P', path.join(__dirname, '..', 'tsconfig.json'),
+        '-r', 'tsconfig-paths/register',
         path.join(__dirname, '..', 'src', 'cli.ts'),
         hostport, 'localhost:0'
       ], { stdio: 'pipe' });
@@ -91,28 +92,29 @@ describe('bin', function() {
       client = await MongoClient.connect(`mongodb://localhost:${port}`);
     });
 
-    afterEach(async() => {
+    afterEach(async () => {
       await client.close();
       proc.kill();
       await once(proc, 'exit');
     });
 
-    it('records ismaster events', async() => {
+    it('records ismaster events', async () => {
       await client.db('test').collection('test').findOne();
       assert.match(stdout, /ismaster: true/);
       assert.match(stdout, /ok: 1/);
     });
 
-    it('records find queries', async() => {
+    it('records find queries', async () => {
       await client.db('test').collection('test').findOne();
       assert.match(stdout, /find: 'test'/);
     });
   });
 
   describe('ndjson', () => {
-    beforeEach(async() => {
+    beforeEach(async () => {
       proc = childProcess.spawn('ts-node', [
         '-P', path.join(__dirname, '..', 'tsconfig.json'),
+        '-r', 'tsconfig-paths/register',
         path.join(__dirname, '..', 'src', 'cli.ts'),
         '--ndjson',
         hostport, 'localhost:0'
@@ -142,19 +144,19 @@ describe('bin', function() {
       client = await MongoClient.connect(`mongodb://localhost:${port}`);
     });
 
-    afterEach(async() => {
+    afterEach(async () => {
       await client.close();
       proc.kill();
       await once(proc, 'exit');
     });
 
-    it('records ismaster events', async() => {
+    it('records ismaster events', async () => {
       await client.db('test').collection('test').findOne();
       assert.match(stdout, /"ismaster":true/);
       assert.match(stdout, /"ok":1/);
     });
 
-    it('records find queries', async() => {
+    it('records find queries', async () => {
       await client.db('test').collection('test').findOne();
       assert.match(stdout, /"find":"test"/);
     });

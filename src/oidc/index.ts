@@ -1,5 +1,5 @@
-export { OIDCProxy } from './oidc-proxy';
-export { JWTValidator, JWTValidationError } from './jwt-validator';
-export type { JWTValidationResult } from './jwt-validator';
-export { MessageBuilder } from './message-builder';
-export * from './types';
+export { OIDCProxy } from '@src/oidc/oidc-proxy';
+export { JWTValidator, JWTValidationError } from '@src/oidc/jwt-validator';
+export type { JWTValidationResult } from '@src/oidc/jwt-validator';
+export { MessageBuilder } from '@src/oidc/message-builder';
+export * from '@src/oidc/types';

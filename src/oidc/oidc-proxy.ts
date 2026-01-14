@@ -1,25 +1,38 @@
-import net from 'net';
+import net, { Server } from 'net';
+import { URL } from 'url';
 import { EventEmitter } from 'events';
+import { promisify } from 'util';
 import { MongoClient, Document } from 'mongodb';
 import { deserialize, Long } from 'bson';
-import { WireProtocolParser } from '../parse-stream';
-import { FullMessage, getSaslCommand, getCommandDb, getCommandBody } from '../parse';
-import { JWTValidator, JWTValidationError } from './jwt-validator';
-import { MessageBuilder } from './message-builder';
-import type { OIDCProxyConfig, OIDCAuthState, IdpInfo } from './types';
+import { LRUCache } from 'lru-cache';
+import { WireProtocolParser } from '@src/parse-stream';
+import { FullMessage, getSaslCommand, getCommandDb, getCommandBody } from '@src/parse';
+import { JWTValidator, JWTValidationError } from '@src/oidc/jwt-validator';
+import { MessageBuilder } from '@src/oidc/message-builder';
+import { Singleflight } from '@src/utils/sync';
+import { randomBytes } from '@src/utils/random';
+import type { OIDCProxyConfig, OIDCAuthState, IdpInfo } from '@src/oidc/types';
 
 interface ConnectionState {
   id: number;
   socket: net.Socket;
   parser: WireProtocolParser;
   authState: OIDCAuthState;
+  userClient?: MongoClient;
+}
+
+interface BackendInfo {
+  protocol: string;
+  host: string;
+  params: URLSearchParams;
 }
 
 const DEFAULT_MAX_CONNECTIONS = 10000;
 const DEFAULT_CONNECTION_TIMEOUT_MS = 120000;
+const PASSWORD_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // Cache user passwords for 24h to avoid rapid rotations
 
 export class OIDCProxy extends EventEmitter {
-  private server: net.Server;
+  private server: Server;
   private backendClient: MongoClient;
   private jwtValidator: JWTValidator;
   private messageBuilder: MessageBuilder;
@@ -29,6 +42,12 @@ export class OIDCProxy extends EventEmitter {
   private conversationIdCounter = 0;
   private maxConnections: number;
   private connectionTimeoutMs: number;
+  private backendInfo: BackendInfo;
+  private singleflight = new Singleflight();
+  private userPasswordCache = new LRUCache<string, string>({
+    max: DEFAULT_MAX_CONNECTIONS,
+    ttl: PASSWORD_CACHE_TTL_MS
+  });
 
   constructor(config: OIDCProxyConfig, jwtValidator?: JWTValidator) {
     super();
@@ -37,6 +56,17 @@ export class OIDCProxy extends EventEmitter {
     this.connectionTimeoutMs = config.connectionTimeoutMs ?? DEFAULT_CONNECTION_TIMEOUT_MS;
     this.jwtValidator = jwtValidator ?? new JWTValidator(config.issuer, config.clientId, config.jwksUri, config.audience);
     this.messageBuilder = new MessageBuilder();
+
+    const url = new URL(config.connectionString);
+    const params = url.searchParams;
+    params.set('authSource', 'admin');
+
+    this.backendInfo = {
+      protocol: url.protocol,
+      host: url.host,
+      params
+    };
+
     this.backendClient = new MongoClient(config.connectionString);
     this.server = net.createServer(socket => this.handleConnection(socket));
   }
@@ -60,11 +90,11 @@ export class OIDCProxy extends EventEmitter {
     }
     this.connections.clear();
 
-    await new Promise<void>((resolve) => {
-      this.server.close(() => resolve());
-    });
-
-    await this.backendClient.close();
+    const closeServer = promisify(this.server.close.bind(this.server));
+    await Promise.allSettled([
+      closeServer(),
+      this.backendClient.close()
+    ]);
   }
 
   address(): net.AddressInfo | string | null {
@@ -116,8 +146,11 @@ export class OIDCProxy extends EventEmitter {
     socket.pipe(parser);
 
     // Clean up on socket close
-    socket.on('close', () => {
+    socket.on('close', async () => {
       this.emit('connectionClosed', connId);
+      if (connState.userClient) {
+        await connState.userClient.close().catch(() => { });
+      }
       this.connections.delete(connId);
       parser.destroy();
     });
@@ -196,14 +229,24 @@ export class OIDCProxy extends EventEmitter {
       const result = await this.jwtValidator.validate(jwt);
 
       if (result.valid) {
+        // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+        const email = result.email!;
+        const userClient = await this.provisionUser(connState.id, connState.socket, msg.header.requestID, email);
+        if (!userClient) {
+          return;
+        }
+
+        // Authentication successful
+        connState.userClient = userClient;
         connState.authState.authenticated = true;
         connState.authState.principalName = result.subject;
+        connState.authState.email = email;
         connState.authState.tokenExp = result.exp;
         connState.socket.write(this.messageBuilder.buildAuthSuccessResponse(
           msg.header.requestID,
           connState.authState.conversationId
         ));
-        this.emit('authSuccess', connState.id, result.subject + ' (via saslStart)');
+        this.emit('authSuccess', connState.id, `${result.subject} (${email}) (via saslStart)`);
         return;
       }
 
@@ -263,15 +306,91 @@ export class OIDCProxy extends EventEmitter {
       return;
     }
 
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    const email = result.email!;
+    const userClient = await this.provisionUser(connState.id, connState.socket, msg.header.requestID, email);
+    if (!userClient) {
+      return;
+    }
+
     // Authentication successful
+    connState.userClient = userClient;
     connState.authState.authenticated = true;
     connState.authState.principalName = result.subject;
+    connState.authState.email = email;
     connState.authState.tokenExp = result.exp;
     connState.socket.write(this.messageBuilder.buildAuthSuccessResponse(
       msg.header.requestID,
       connState.authState.conversationId
     ));
-    this.emit('authSuccess', connState.id, result.subject + ' (via saslContinue)');
+    this.emit('authSuccess', connState.id, `${result.subject} (${email}) (via saslContinue)`);
+  }
+
+  private async provisionUser(connId: number, socket: net.Socket, requestId: number, email: string): Promise<MongoClient | null> {
+    const { value } = await this.singleflight.do(email, async () => {
+      this.emit('debug', connId, `Checking roles for ${email}...`);
+      const adminDb = this.backendClient.db('admin');
+
+      // Verify role exists
+      const rolesInfo = await adminDb.command({ rolesInfo: email });
+      if (!rolesInfo.roles || rolesInfo.roles.length === 0) {
+        this.emit('debug', connId, `Role ${email} not found in DB`);
+        socket.write(this.messageBuilder.buildAuthFailureResponse(
+          requestId,
+          `Role '${email}' not defined`
+        ));
+        return null;
+      }
+
+      const cachedPassword = this.userPasswordCache.get(email);
+      if (cachedPassword) {
+        this.emit('debug', connId, `User found in cache ${email}`);
+        return {
+          username: email,
+          password: cachedPassword
+        };
+      }
+
+      // Create/Update user with random password
+      const password = randomBytes(32).toString('base64');
+
+      try {
+        await adminDb.command({
+          updateUser: email,
+          pwd: password,
+          roles: [{ role: email, db: 'admin' }]
+        });
+        this.emit('debug', connId, `Updated user ${email}`);
+      } catch (err: any) {
+        if (err.codeName === 'UserNotFound') {
+          await adminDb.command({
+            createUser: email,
+            pwd: password,
+            roles: [{ role: email, db: 'admin' }]
+          });
+          this.emit('debug', connId, `Created user ${email}`);
+        } else {
+          throw err;
+        }
+      }
+
+      // Set the new password in the cache
+      this.userPasswordCache.set(email, password);
+
+      return {
+        username: email,
+        password: password
+      };
+    });
+
+    if (!value) {
+      return null;
+    }
+
+    const { protocol, host, params } = this.backendInfo;
+    return new MongoClient(
+      `${protocol}//${encodeURIComponent(value.username)}:${encodeURIComponent(value.password)}@${host}/?${params.toString()}`
+    ).connect();
   }
 
   private extractJwtFromPayload(connId: number, payload?: Uint8Array): string | null {
@@ -279,8 +398,6 @@ export class OIDCProxy extends EventEmitter {
       this.emit('debug', connId, 'saslStart with empty payload');
       return null;
     }
-
-    this.emit('debug', connId, `saslStart payload size: ${payload.length} bytes`);
 
     let payloadDoc: Record<string, unknown>;
     try {
@@ -365,12 +482,12 @@ export class OIDCProxy extends EventEmitter {
     }
 
     try {
-      // Remove $db field as we specify db via the driver
       const command = { ...body };
       delete command.$db;
 
-      const db = this.backendClient.db(dbName);
-      const result = await db.command(command as Document);
+      // Use the dedicated user client
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+      const result = await connState.userClient!.db(dbName).command(command as Document);
 
       // Ensure cursor.id is a proper BSON Long type for mongosh compatibility
       if (result.cursor && result.cursor.id !== undefined) {

@@ -1,6 +1,6 @@
-import { Proxy, ConnectionPair } from './proxy';
-import { OIDCProxy, OIDCProxyConfig } from './oidc';
-import type { FullMessage } from './parse';
+import { Proxy, ConnectionPair } from '@src/proxy';
+import { OIDCProxy, OIDCProxyConfig } from '@src/oidc';
+import type { FullMessage } from '@src/parse';
 import { EJSON } from 'bson';
 
 interface ParsedArgs {
