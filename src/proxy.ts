@@ -5,15 +5,24 @@ import { EventEmitter, once } from 'events';
 export class ConnectionPair extends EventEmitter {
   id: number;
   incoming: string;
+  bytesIn: number;
+  bytesOut: number;
 
   constructor(info: Pick<ConnectionPair, 'id' | 'incoming'>) {
     super();
     this.id = info.id;
     this.incoming = info.incoming;
+    this.bytesIn = 0;
+    this.bytesOut = 0;
   }
 
-  toJSON(): Pick<ConnectionPair, 'id' | 'incoming'> {
-    return { id: this.id, incoming: this.incoming };
+  toJSON(): Pick<ConnectionPair, 'id' | 'incoming'> & { bytesIn: number; bytesOut: number } {
+    return {
+      id: this.id,
+      incoming: this.incoming,
+      bytesIn: this.bytesIn,
+      bytesOut: this.bytesOut
+    };
   }
 }
 
@@ -40,6 +49,14 @@ export class Proxy extends EventEmitter {
       conn2.pipe(conn1);
       conn1.pipe(conn1reader);
       conn2.pipe(conn2reader);
+
+      // Track bandwidth
+      conn1.on('data', (chunk: Buffer) => {
+        cp.bytesIn += chunk.length;
+      });
+      conn2.on('data', (chunk: Buffer) => {
+        cp.bytesOut += chunk.length;
+      });
 
       conn1.on('close', () => {
         cp.emit('connectionEnded', 'outgoing');
