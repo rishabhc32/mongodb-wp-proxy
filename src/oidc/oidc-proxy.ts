@@ -1,4 +1,4 @@
-import net, { Server } from 'net';
+import net, { Server, Socket, AddressInfo } from 'net';
 import { URL } from 'url';
 import { EventEmitter } from 'events';
 import { promisify } from 'util';
@@ -92,11 +92,11 @@ export class OIDCProxy extends EventEmitter {
     ]);
   }
 
-  address(): net.AddressInfo | string | null {
+  address(): AddressInfo | string | null {
     return this.server.address();
   }
 
-  private handleConnection(socket: net.Socket): void {
+  private handleConnection(socket: Socket): void {
     const connId = ++this.connectionIdCounter;
 
     // Reject if max connections exceeded
@@ -136,7 +136,7 @@ export class OIDCConnection extends EventEmitter {
   bytesIn: number;
   bytesOut: number;
 
-  private socket: net.Socket;
+  private socket: Socket;
   private parser: WireProtocolParser;
   private userClient?: MongoClient;
   private conversationId = 0;
@@ -155,7 +155,7 @@ export class OIDCConnection extends EventEmitter {
   constructor(
     id: number,
     incoming: string,
-    socket: net.Socket,
+    socket: Socket,
     timeoutMs: number,
     backendClient: MongoClient,
     jwtValidator: JWTValidator,

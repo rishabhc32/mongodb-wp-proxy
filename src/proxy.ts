@@ -1,4 +1,4 @@
-import net from 'net';
+import net, { NetConnectOpts, Server } from 'net';
 import { WireProtocolParser } from '@src/parse-stream';
 import { EventEmitter, once } from 'events';
 
@@ -27,11 +27,11 @@ export class ConnectionPair extends EventEmitter {
 }
 
 export class Proxy extends EventEmitter {
-  srv: net.Server;
+  srv: Server;
   connId: number;
 
   // eslint-disable-next-line @typescript-eslint/explicit-module-boundary-types
-  constructor(target: any) {
+  constructor(target: NetConnectOpts) {
     super();
     this.connId = 0;
     this.srv = net.createServer();
