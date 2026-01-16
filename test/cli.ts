@@ -32,6 +32,11 @@ describe('cli parseArgs', () => {
     assert.strictEqual(args.logLevel, 'info');
   });
 
+  it('parses --tag', () => {
+    const args = parseArgs(['node', 'cli.ts', '--tag', 'alpha']);
+    assert.strictEqual(args.tag, 'alpha');
+  });
+
   it('ignores invalid --log-level value', () => {
     const args = parseArgs(['node', 'cli.ts', '--log-level', 'invalid']);
     assert.strictEqual(args.logLevel, 'info'); // default
@@ -78,6 +83,7 @@ describe('cli parseArgs', () => {
       '--jwks-uri', 'https://auth.example.com/jwks',
       '--audience', 'https://api.example.com',
       '--log-level', 'debug',
+      '--tag', 'alpha',
       '3000'
     ]);
     assert.strictEqual(args.ndjson, true);
@@ -88,6 +94,7 @@ describe('cli parseArgs', () => {
     assert.strictEqual(args.jwksUri, 'https://auth.example.com/jwks');
     assert.strictEqual(args.audience, 'https://api.example.com');
     assert.strictEqual(args.logLevel, 'debug');
+    assert.strictEqual(args.tag, 'alpha');
     assert.deepStrictEqual(args.positional, ['3000']);
   });
 
@@ -113,6 +120,7 @@ describe('cli parseArgs', () => {
     assert.strictEqual(args.connectionString, undefined);
     assert.strictEqual(args.jwksUri, undefined);
     assert.strictEqual(args.audience, undefined);
+    assert.strictEqual(args.tag, undefined);
     assert.deepStrictEqual(args.positional, []);
   });
 });
