@@ -1,21 +1,31 @@
+local function shallow_copy(t)
+  local copy = {}
+  for k, v in pairs(t) do copy[k] = v end
+  return copy
+end
+
+local function empty_if_missing(v)
+  return v ~= nil and v or ""
+end
+
 function normalize(tag, ts, record)
-  local function empty_if_missing(v)
-    if v == nil then
-      return ""
-    end
-    return v
+  -- Skip records with empty or missing event type
+  if record["ev"] == nil or record["ev"] == "" then
+    return -1, 0, 0
   end
 
-  -- Build tags array from either "tags" or "tag" field
-  if record["tags"] ~= nil then
-    if type(record["tags"]) == "string" then
-      record["tags"] = { record["tags"] }
-    end
-  elseif record["tag"] ~= nil then
-    record["tags"] = { record["tag"] }
-    record["tag"] = nil
-  else
-    record["tags"] = { "" }  -- Empty array serializes as {}, use placeholder instead
+  -- Convert Fluent Bit timestamp (Unix epoch) to ClickHouse DateTime64 format
+  -- ts is a number like 1737335734.508, convert to "2026-01-20 01:55:34.508"
+  local sec = math.floor(ts)
+  local msec = math.floor((ts - sec) * 1000)
+  record["ts"] = os.date("!%Y-%m-%d %H:%M:%S", sec) .. string.format(".%03d", msec)
+
+  -- Copy full record to log field for flexible querying (before normalization)
+  record["log"] = shallow_copy(record)
+
+  -- Ensure tags array is not empty (empty Lua table {} serializes as JSON object, not array)
+  if record["tags"] == nil or #record["tags"] == 0 then
+    record["tags"] = { "" }
   end
 
   record["user"] = empty_if_missing(record["user"])

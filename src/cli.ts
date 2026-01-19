@@ -10,7 +10,7 @@ export interface ParsedArgs {
   ndjson: boolean;
   oidcMode: boolean;
   logLevel: 'debug' | 'info';
-  tag?: string;
+  tags: string[];
   issuer?: string;
   clientId?: string;
   connectionString?: string;
@@ -25,6 +25,7 @@ export function parseArgs (argv: string[]): ParsedArgs {
     ndjson: false,
     oidcMode: false,
     logLevel: 'info',
+    tags: [],
     positional: []
   };
 
@@ -44,7 +45,7 @@ export function parseArgs (argv: string[]): ParsedArgs {
         args.logLevel = level;
       }
     } else if (arg === '--tag' && i + 1 < argv.length) {
-      args.tag = argv[++i];
+      args.tags.push(argv[++i]);
     } else if (arg === '--issuer' && i + 1 < argv.length) {
       args.issuer = argv[++i];
     } else if (arg === '--client-id' && i + 1 < argv.length) {
@@ -103,8 +104,9 @@ function normalizeUser (user: OptionalUser): string | null {
   return user ?? null;
 }
 
-function formatLogPrefix (connId: number, user?: OptionalUser, tag?: string): string {
-  return `[${connId}]${user ? ` [${user}]` : ''}${tag ? ` [${tag}]` : ''}`;
+function formatLogPrefix (connId: number, user?: OptionalUser, tags?: string[]): string {
+  const tagStr = tags && tags.length > 0 ? ` [${tags.join(',')}]` : '';
+  return `[${connId}]${user ? ` [${user}]` : ''}${tagStr}`;
 }
 
 function utcnow (): string {
@@ -131,7 +133,7 @@ async function runTransparentProxy (args: ParsedArgs): Promise<void> {
         ts: utcnow(),
         ev: 'newConnection',
         conn,
-        tag: args.tag,
+        tags: args.tags,
         bytesInTotal: 0,
         bytesOutTotal: 0
       }));
@@ -146,7 +148,7 @@ async function runTransparentProxy (args: ParsedArgs): Promise<void> {
           ev: 'connectionClosed',
           conn,
           source,
-          tag: args.tag,
+          tags: args.tags,
           bytesInTotal: conn.bytesIn,
           bytesOutTotal: conn.bytesOut
         }));
@@ -162,7 +164,7 @@ async function runTransparentProxy (args: ParsedArgs): Promise<void> {
           ev: 'connectionError',
           conn,
           source,
-          tag: args.tag,
+          tags: args.tags,
           err: err.message
         }));
       } else {
@@ -178,7 +180,7 @@ async function runTransparentProxy (args: ParsedArgs): Promise<void> {
           conn: conn.toJSON(),
           source,
           msg,
-          tag: args.tag,
+          tags: args.tags,
           bytesInTotal: conn.bytesIn,
           bytesOutTotal: conn.bytesOut
         }));
@@ -195,7 +197,7 @@ async function runTransparentProxy (args: ParsedArgs): Promise<void> {
           ev: 'parseError',
           conn,
           source,
-          tag: args.tag,
+          tags: args.tags,
           err: err.message
         }));
       } else {
@@ -210,7 +212,7 @@ async function runTransparentProxy (args: ParsedArgs): Promise<void> {
       ts: utcnow(),
       ev: 'listening',
       addr: proxy.address(),
-      tag: args.tag,
+      tags: args.tags,
       local,
       target
     }));
@@ -256,7 +258,7 @@ async function runOIDCProxy (args: ParsedArgs): Promise<void> {
         ev: 'listening',
         addr,
         mode: 'oidc',
-        tag: args.tag,
+        tags: args.tags,
         issuer: args.issuer,
       }));
     } else {
@@ -271,7 +273,7 @@ async function runOIDCProxy (args: ParsedArgs): Promise<void> {
       console.log(JSON.stringify({
         ts: utcnow(),
         ev: 'backendConnected',
-        tag: args.tag
+        tags: args.tags
       }));
     } else {
       console.log('Connected to backend MongoDB');
@@ -284,7 +286,7 @@ async function runOIDCProxy (args: ParsedArgs): Promise<void> {
         ts: utcnow(),
         ev: 'newConnection',
         conn: conn.toJSON(),
-        tag: args.tag,
+        tags: args.tags,
         bytesInTotal: 0,
         bytesOutTotal: 0
       }));
@@ -298,7 +300,7 @@ async function runOIDCProxy (args: ParsedArgs): Promise<void> {
           ts: utcnow(),
           ev: 'connectionClosed',
           connId: conn.connId,
-          tag: args.tag,
+          tags: args.tags,
           bytesInTotal: conn.bytesIn,
           bytesOutTotal: conn.bytesOut
         }));
@@ -313,7 +315,7 @@ async function runOIDCProxy (args: ParsedArgs): Promise<void> {
           ts: utcnow(),
           ev: 'connectionError',
           connId: conn.connId,
-          tag: args.tag,
+          tags: args.tags,
           err: err.message
         }));
       } else {
@@ -326,7 +328,7 @@ async function runOIDCProxy (args: ParsedArgs): Promise<void> {
         console.log(JSON.stringify({
           ts: utcnow(),
           ev: 'saslStart',
-          tag: args.tag,
+          tags: args.tags,
           connId: conn.connId
         }));
       } else {
@@ -340,13 +342,13 @@ async function runOIDCProxy (args: ParsedArgs): Promise<void> {
         console.log(JSON.stringify({
           ts: utcnow(),
           ev: 'authAttempt',
-          tag: args.tag,
+          tags: args.tags,
           connId: conn.connId,
           user: normalizedUser,
           jwt
         }));
       } else {
-        console.log(`${formatLogPrefix(conn.connId, normalizedUser, args.tag)} Attempting JWT authentication: ${JSON.stringify(jwt)}`);
+        console.log(`${formatLogPrefix(conn.connId, normalizedUser, args.tags)} Attempting JWT authentication: ${JSON.stringify(jwt)}`);
       }
     });
 
@@ -357,13 +359,13 @@ async function runOIDCProxy (args: ParsedArgs): Promise<void> {
         console.log(JSON.stringify({
           ts: utcnow(),
           ev: 'authSuccess',
-          tag: args.tag,
+          tags: args.tags,
           connId: conn.connId,
           user: normalizedUser,
           subject: normalizedSubject
         }));
       } else {
-        console.log(`${formatLogPrefix(conn.connId, normalizedUser, args.tag)} Authentication successful for: ${normalizedSubject}`);
+        console.log(`${formatLogPrefix(conn.connId, normalizedUser, args.tags)} Authentication successful for: ${normalizedSubject}`);
       }
     });
 
@@ -373,13 +375,13 @@ async function runOIDCProxy (args: ParsedArgs): Promise<void> {
         console.log(JSON.stringify({
           ts: utcnow(),
           ev: 'authFailed',
-          tag: args.tag,
+          tags: args.tags,
           connId: conn.connId,
           user: normalizedUser,
           error
         }));
       } else {
-        console.log(`${formatLogPrefix(conn.connId, normalizedUser, args.tag)} Authentication failed: ${error}`);
+        console.log(`${formatLogPrefix(conn.connId, normalizedUser, args.tags)} Authentication failed: ${error}`);
       }
     });
 
@@ -395,12 +397,12 @@ async function runOIDCProxy (args: ParsedArgs): Promise<void> {
           cmd,
           request,
           response,
-          tag: args.tag,
+          tags: args.tags,
           bytesInTotal: conn.bytesIn,
           bytesOutTotal: conn.bytesOut
         }));
       } else {
-        console.log(`${formatLogPrefix(conn.connId, normalizedUser, args.tag)} Forwarded command: ${db}.${cmd}`);
+        console.log(`${formatLogPrefix(conn.connId, normalizedUser, args.tags)} Forwarded command: ${db}.${cmd}`);
       }
     });
 
@@ -413,12 +415,12 @@ async function runOIDCProxy (args: ParsedArgs): Promise<void> {
           connId: conn.connId,
           user: normalizedUser,
           error,
-          tag: args.tag,
+          tags: args.tags,
           bytesInTotal: conn.bytesIn,
           bytesOutTotal: conn.bytesOut
         }));
       } else {
-        console.log(`${formatLogPrefix(conn.connId, normalizedUser, args.tag)} Command error: ${error}`);
+        console.log(`${formatLogPrefix(conn.connId, normalizedUser, args.tags)} Command error: ${error}`);
       }
     });
 
@@ -428,7 +430,7 @@ async function runOIDCProxy (args: ParsedArgs): Promise<void> {
           ts: utcnow(),
           ev: 'parseError',
           connId: conn.connId,
-          tag: args.tag,
+          tags: args.tags,
           err: err.message
         }));
       } else {
@@ -441,7 +443,7 @@ async function runOIDCProxy (args: ParsedArgs): Promise<void> {
         console.log(JSON.stringify({
           ts: utcnow(),
           ev: 'authRequired',
-          tag: args.tag,
+          tags: args.tags,
           connId: conn.connId,
           cmdName
         }));
@@ -459,13 +461,13 @@ async function runOIDCProxy (args: ParsedArgs): Promise<void> {
         console.log(JSON.stringify({
           ts: utcnow(),
           ev: 'debug',
-          tag: args.tag,
+          tags: args.tags,
           connId: conn.connId,
           user: normalizedUser,
           message
         }));
       } else {
-        console.log(`${formatLogPrefix(conn.connId, normalizedUser, args.tag)} DEBUG: ${message}`);
+        console.log(`${formatLogPrefix(conn.connId, normalizedUser, args.tags)} DEBUG: ${message}`);
       }
     });
 
@@ -474,7 +476,7 @@ async function runOIDCProxy (args: ParsedArgs): Promise<void> {
         console.log(JSON.stringify({
           ts: utcnow(),
           ev: 'connectionTimeout',
-          tag: args.tag,
+          tags: args.tags,
           connId: conn.connId
         }));
       } else {
@@ -488,13 +490,13 @@ async function runOIDCProxy (args: ParsedArgs): Promise<void> {
         console.log(JSON.stringify({
           ts: utcnow(),
           ev: 'reauthRequired',
-          tag: args.tag,
+          tags: args.tags,
           connId: conn.connId,
           user: normalizedUser,
           reason
         }));
       } else {
-        console.log(`${formatLogPrefix(conn.connId, normalizedUser, args.tag)} Reauthentication required: ${reason}`);
+        console.log(`${formatLogPrefix(conn.connId, normalizedUser, args.tags)} Reauthentication required: ${reason}`);
       }
     });
   });

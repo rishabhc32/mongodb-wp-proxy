@@ -34,7 +34,12 @@ describe('cli parseArgs', () => {
 
   it('parses --tag', () => {
     const args = parseArgs(['node', 'cli.ts', '--tag', 'alpha']);
-    assert.strictEqual(args.tag, 'alpha');
+    assert.deepStrictEqual(args.tags, ['alpha']);
+  });
+
+  it('parses multiple --tag flags', () => {
+    const args = parseArgs(['node', 'cli.ts', '--tag', 'alpha', '--tag', 'beta', '--tag', 'gamma']);
+    assert.deepStrictEqual(args.tags, ['alpha', 'beta', 'gamma']);
   });
 
   it('ignores invalid --log-level value', () => {
@@ -94,7 +99,7 @@ describe('cli parseArgs', () => {
     assert.strictEqual(args.jwksUri, 'https://auth.example.com/jwks');
     assert.strictEqual(args.audience, 'https://api.example.com');
     assert.strictEqual(args.logLevel, 'debug');
-    assert.strictEqual(args.tag, 'alpha');
+    assert.deepStrictEqual(args.tags, ['alpha']);
     assert.deepStrictEqual(args.positional, ['3000']);
   });
 
@@ -120,7 +125,7 @@ describe('cli parseArgs', () => {
     assert.strictEqual(args.connectionString, undefined);
     assert.strictEqual(args.jwksUri, undefined);
     assert.strictEqual(args.audience, undefined);
-    assert.strictEqual(args.tag, undefined);
+    assert.deepStrictEqual(args.tags, []);
     assert.deepStrictEqual(args.positional, []);
   });
 });
