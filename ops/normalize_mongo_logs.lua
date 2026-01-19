@@ -25,6 +25,7 @@ function normalize(tag, ts, record)
     record["tags"] = { "" }
   end
 
+  record["connId"] = empty_if_missing(record["connId"])
   record["user"] = empty_if_missing(record["user"])
   record["db"] = empty_if_missing(record["db"])
   record["cmd"] = empty_if_missing(record["cmd"])

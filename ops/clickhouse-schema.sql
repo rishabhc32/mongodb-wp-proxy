@@ -4,7 +4,7 @@
 CREATE TABLE IF NOT EXISTS mongo_logs (
     ts DateTime64(3, 'UTC'),
     ev LowCardinality(String),
-    connId Int32,
+    connId String,
 
     -- Common fields (extracted for fast queries)
     user String DEFAULT '',
@@ -24,5 +24,5 @@ CREATE TABLE IF NOT EXISTS mongo_logs (
     INDEX idxTags tags TYPE bloom_filter(0.01) GRANULARITY 1
 ) ENGINE = MergeTree()
 PARTITION BY toYYYYMMDD(ts)
-ORDER BY (user, ev, ts)
+ORDER BY (user, connId, ts)
 SETTINGS index_granularity = 8192;
