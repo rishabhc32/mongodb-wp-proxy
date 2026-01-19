@@ -1,30 +1,38 @@
-import net from 'net';
+import net, { NetConnectOpts, Server } from 'net';
 import { WireProtocolParser } from '@src/parse-stream';
 import { EventEmitter, once } from 'events';
+import { ksuid } from '@src/utils/ksuid';
 
 export class ConnectionPair extends EventEmitter {
-  id: number;
+  connId: string;
   incoming: string;
+  bytesIn: number;
+  bytesOut: number;
 
-  constructor(info: Pick<ConnectionPair, 'id' | 'incoming'>) {
+  constructor(info: Pick<ConnectionPair, 'connId' | 'incoming'>) {
     super();
-    this.id = info.id;
+    this.connId = info.connId;
     this.incoming = info.incoming;
+    this.bytesIn = 0;
+    this.bytesOut = 0;
   }
 
-  toJSON(): Pick<ConnectionPair, 'id' | 'incoming'> {
-    return { id: this.id, incoming: this.incoming };
+  toJSON(): Pick<ConnectionPair, 'connId' | 'incoming'> & { bytesIn: number; bytesOut: number } {
+    return {
+      connId: this.connId,
+      incoming: this.incoming,
+      bytesIn: this.bytesIn,
+      bytesOut: this.bytesOut
+    };
   }
 }
 
 export class Proxy extends EventEmitter {
-  srv: net.Server;
-  connId: number;
+  srv: Server;
 
   // eslint-disable-next-line @typescript-eslint/explicit-module-boundary-types
-  constructor(target: any) {
+  constructor(target: NetConnectOpts) {
     super();
-    this.connId = 0;
     this.srv = net.createServer();
     this.srv.on('connection', (conn1) => {
       const conn2 = net.createConnection(target);
@@ -32,7 +40,7 @@ export class Proxy extends EventEmitter {
       const conn1reader = new WireProtocolParser();
       const conn2reader = new WireProtocolParser();
       const cp = new ConnectionPair({
-        id: this.connId++,
+        connId: ksuid(),
         incoming: `${conn1.remoteAddress}:${conn1.remotePort}`
       });
 
@@ -41,13 +49,21 @@ export class Proxy extends EventEmitter {
       conn1.pipe(conn1reader);
       conn2.pipe(conn2reader);
 
+      // Track bandwidth
+      conn1.on('data', (chunk: Buffer) => {
+        cp.bytesIn += chunk.length;
+      });
+      conn2.on('data', (chunk: Buffer) => {
+        cp.bytesOut += chunk.length;
+      });
+
       conn1.on('close', () => {
-        cp.emit('connectionEnded', 'outgoing');
+        cp.emit('connectionClosed', 'outgoing');
         conn2.destroy();
         conn1reader.destroy();
       });
       conn2.on('close', () => {
-        cp.emit('connectionEnded', 'incoming');
+        cp.emit('connectionClosed', 'incoming');
         conn1.destroy();
         conn2reader.destroy();
       });
