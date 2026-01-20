@@ -32,6 +32,8 @@ function normalize(tag, ts, record)
   record["error"] = empty_if_missing(record["error"])
   record["source"] = empty_if_missing(record["source"])
 
+  record["requestBytes"] = record["requestBytes"] or 0
+  record["responseBytes"] = record["responseBytes"] or 0
   record["bytesInTotal"] = record["bytesInTotal"] or 0
   record["bytesOutTotal"] = record["bytesOutTotal"] or 0
 
