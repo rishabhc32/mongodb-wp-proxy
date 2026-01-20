@@ -232,6 +232,10 @@ export class OIDCConnection extends EventEmitter {
     };
   }
 
+  getUser(): string | undefined {
+    return this.email;
+  }
+
   private write(buffer: Buffer): void {
     this.bytesOut += buffer.length;
     this.socket.write(buffer);

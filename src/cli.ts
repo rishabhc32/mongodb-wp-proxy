@@ -300,11 +300,13 @@ async function runOIDCProxy(args: ParsedArgs): Promise<void> {
     }
 
     conn.on('connectionClosed', () => {
+      const normalizedUser = normalizeUser(conn.getUser());
       if (args.ndjson) {
         console.log(JSON.stringify({
           ts: utcnow(),
           ev: 'connectionClosed',
           connId: conn.connId,
+          user: normalizedUser,
           tags: args.tags,
           bytesInTotal: conn.bytesIn,
           bytesOutTotal: conn.bytesOut
@@ -393,7 +395,7 @@ async function runOIDCProxy(args: ParsedArgs): Promise<void> {
     conn.on('commandForwarded', (user: string, db: string, cmd: string, request: any, response: any, requestBytes = 0, responseBytes = 0) => {
       const normalizedUser = normalizeUser(user);
       if (args.ndjson) {
-        console.log(EJSON.stringify({
+        const payload: Record<string, unknown> = {
           ts: utcnow(),
           ev: 'commandForwarded',
           connId: conn.connId,
@@ -401,13 +403,16 @@ async function runOIDCProxy(args: ParsedArgs): Promise<void> {
           db,
           cmd,
           request,
-          response,
           tags: args.tags,
           requestBytes,
           responseBytes,
           bytesInTotal: conn.bytesIn,
           bytesOutTotal: conn.bytesOut
-        }));
+        };
+        if (args.logLevel === 'debug') {
+          payload.response = response;
+        }
+        console.log(EJSON.stringify(payload));
       } else {
         console.log(`${formatLogPrefix(conn.connId, normalizedUser, args.tags)} Forwarded command: ${db}.${cmd}`);
       }
@@ -479,12 +484,14 @@ async function runOIDCProxy(args: ParsedArgs): Promise<void> {
     });
 
     conn.on('connectionTimeout', () => {
+      const normalizedUser = normalizeUser(conn.getUser());
       if (args.ndjson) {
         console.log(JSON.stringify({
           ts: utcnow(),
           ev: 'connectionTimeout',
           tags: args.tags,
-          connId: conn.connId
+          connId: conn.connId,
+          user: normalizedUser
         }));
       } else {
         console.log(`[${conn.connId}] Connection timed out`);

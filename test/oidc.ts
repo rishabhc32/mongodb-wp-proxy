@@ -1130,6 +1130,7 @@ describe('OIDCProxy with mock validator', function() {
       const [user, subject] = await authSuccessPromise;
       assert.strictEqual(user, 'test-user@example.com');
       assert(subject.includes('test-user@example.com'));
+      assert.strictEqual(conn.getUser(), 'test-user@example.com');
 
       const response = await responsePromise;
       const bsonData = response.subarray(21);
