@@ -522,7 +522,25 @@ describe('OIDCProxy', function() {
     });
   });
 
-  describe('hello/ismaster handling', () => {
+  describe('hello handling and command error logging', () => {
+    before(async () => {
+      const adminClient = new MongoClient(`mongodb://${hostport}`);
+      await adminClient.connect();
+      try {
+        await adminClient.db('admin').command({
+          createRole: 'test-user@example.com',
+          privileges: [],
+          roles: []
+        });
+      } catch (err: any) {
+        if (err.code !== 11000 && !err.message.includes('already exists')) {
+          throw err;
+        }
+      } finally {
+        await adminClient.close();
+      }
+    });
+
     it('responds to hello command with OIDC mechanism', async () => {
       const config: OIDCProxyConfig = {
         issuer: 'https://example.com',
@@ -554,6 +572,61 @@ describe('OIDCProxy', function() {
       assert.strictEqual(parsed.ismaster, true);
       assert.strictEqual(parsed.ok, 1);
       assert.deepStrictEqual(parsed.saslSupportedMechs, ['MONGODB-OIDC']);
+
+      client.destroy();
+      await proxy.stop();
+    });
+
+    it('emits commandError with db/cmd on failing command', async () => {
+      const mockValidator = new MockJWTValidator({
+        valid: true,
+        subject: 'test-user@example.com',
+        email: 'test-user@example.com',
+        exp: Math.floor(Date.now() / 1000) + 3600
+      });
+
+      const config: OIDCProxyConfig = {
+        issuer: 'https://example.com',
+        clientId: 'test-client',
+        connectionString: `mongodb://${hostport}`,
+        listenPort: 0
+      };
+
+      const proxy = new OIDCProxy(config, mockValidator);
+      await proxy.start();
+
+      const addr = proxy.address() as net.AddressInfo;
+
+      const client = new net.Socket();
+      const reader = new ResponseReader(client);
+      await new Promise<void>((resolve) => client.connect(addr.port, 'localhost', resolve));
+
+      const [conn] = await once(proxy, 'newConnection');
+      const commandErrorPromise = once(conn, 'commandError');
+      const authSuccessPromise = once(conn, 'authSuccess');
+
+      // Authenticate
+      const saslStartMsg = buildOpMsg({
+        saslStart: 1,
+        mechanism: 'MONGODB-OIDC',
+        payload: new Binary(Buffer.from(serialize({ jwt: 'mock.jwt.token' }))),
+        $db: 'admin'
+      }, 1);
+
+      client.write(saslStartMsg);
+      await reader.read(); // Wait for auth response
+      await authSuccessPromise;
+
+      // Send an invalid command (requestId 2)
+      const invalidCmd = buildOpMsg({ doesNotExist: 1, $db: 'admin' }, 2);
+      client.write(invalidCmd);
+
+      const [user, error, dbName, cmdName] = await commandErrorPromise;
+      assert.strictEqual(user, 'test-user@example.com');
+      assert.strictEqual(dbName, 'admin');
+      assert.strictEqual(cmdName, 'doesNotExist');
+      assert.strictEqual(typeof error, 'string');
+      assert(error.length > 0);
 
       client.destroy();
       await proxy.stop();
