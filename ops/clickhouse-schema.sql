@@ -2,7 +2,7 @@
 
 -- Main events table (all events)
 CREATE TABLE IF NOT EXISTS mongo_logs (
-    ts DateTime64(3, 'UTC'),
+    `@timestamp` DateTime64(3, 'UTC'),
     ev LowCardinality(String),
     connId String,
 
@@ -27,6 +27,6 @@ CREATE TABLE IF NOT EXISTS mongo_logs (
 
     INDEX idxTags tags TYPE bloom_filter(0.01) GRANULARITY 1
 ) ENGINE = MergeTree()
-PARTITION BY toYYYYMMDD(ts)
-ORDER BY (user, connId, ts)
+PARTITION BY toYYYYMMDD(`@timestamp`)
+ORDER BY (user, connId, `@timestamp`)
 SETTINGS index_granularity = 8192;
