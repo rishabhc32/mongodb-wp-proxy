@@ -14,6 +14,10 @@ CREATE TABLE IF NOT EXISTS mongo_logs (
     error String DEFAULT '',
     source String DEFAULT '',
 
+    -- Per-event payload sizes
+    requestBytes UInt64 DEFAULT 0,
+    responseBytes UInt64 DEFAULT 0,
+
     -- Bandwidth fields (cumulative totals per connection)
     bytesInTotal UInt64 DEFAULT 0,
     bytesOutTotal UInt64 DEFAULT 0,
